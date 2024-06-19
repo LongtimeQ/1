@@ -1,0 +1,180 @@
+Выполните базовую настройку всех устройств:
+a. Присвоить имена в соответствии с топологией
+b. Рассчитайте IP-адресацию IPv4 и IPv6. Необходимо заполнить таблицу №1, чтобы эксперты могли проверить ваше рабочее место.
+c. Пул адресов для сети офиса BRANCH - не более 16
+d. Пул адресов для сети офиса HQ - не более 64
+
+Имя устройства	Интерфейс	Ip-адрес	Маска/Префикс	Шлюз
+ISP	ens18	10.10.201.174	/24 255.255.255.0	10.10.201.254
+ens19	11.11.11.1	/30 255.255.255.252	
+ens20	22.22.22.1	/30 255.255.255.252	
+BR-R	ens18	22.22.22.2	/30 255.255.255.252	22.22.22.1
+ens19	192.168.100.1	/27 255.255.255.224	
+HQ-R	ens18	11.11.11.2	/30 255.255.255.252	11.11.11.1
+ens19	192.168.0.1	/25 255.255.255.128	
+BR-SRV	ens18	192.168.100.2	/27 255.255.255.224	192.168.100.1
+HQ-SRV	ens18	192.168.0.2	/25 255.255.255.128	192.168.0.1
+
+Настройка зеркал во всех машинах nano /etc/apt/sources.list
+
+deb http://mirror.yandex.ru/debian/ stable main contrib non-free
+IP-адрес машин
+nano /etc/network/interfaces
+HQ-SRV:
+
+auto ens18
+iface ens18 inet static
+address 192.168.0.2/25
+gateway 192.168.0.1
+BR-SRV:
+
+auto ens18
+iface ens18 inet static
+address 192.168.100.2/27
+gateway 192.168.100.1
+HQ-R:
+
+auto ens18
+iface ens18 inet static
+address 11.11.11.2/30
+gateway 11.11.11.1
+auto ens19
+iface ens19 inet static
+address 192.168.0.1/25
+BR-R:
+
+auto ens18
+iface ens18 inet static
+address 22.22.22.2/30
+gateway 22.22.22.1
+auto ens19
+iface ens19 inet static
+address 192.168.100.1/27
+ISP:
+
+auto ens18
+iface ens18 inet static
+address 10.10.201.174/24
+gateway 10.10.201.254
+auto ens19
+iface ens19 inet static
+address 11.11.11.1/30
+auto ens20
+iface ens20 inet static
+address 22.22.22.1/30
+systemctl restart networking.service
+NAT на ISP, HQ-R,BR-R
+nano /etc/sysctl.conf
+net.ipv4.ip_forward=1
+sysctl -p
+Отключить NetworkManager:
+
+systemctl disable NetworkManager
+Установка firewalld:
+
+apt-get update && apt-get -y install firewalld && systemctl enable --now firewalld
+Правила к исходящим пакетам:
+
+firewall-cmd --permanent --zone=public --add-interface=ens18
+Правила к входящим пакетам:
+
+firewall-cmd --permanent --zone=trusted --add-interface=ens19
+Включение NAT:
+
+firewall-cmd --permanent --zone=public --add-masquerade
+Сохранение правил:
+
+firewall-cmd --reload
+Модуль 1 задание 2
+Настройте внутреннюю динамическую маршрутизацию по средствам FRR. Выберите и обоснуйте выбор протокола динамической маршрутизации из расчёта, что в дальнейшем сеть будет масштабироваться.
+a. Составьте топологию сети L3.
+
+Установка frr
+
+apt update
+apt install frr
+nano /etc/frr/daemons
+Вместо ospfd=no на:
+
+ospfd=yes
+systemctl restart frr
+vtysh вход в среду роутера
+
+sh int br
+image
+
+conf t
+router ospf
+net 192.168.0.0/25 area 0
+net 192.168.0.164/30 area 0
+sh ip ospf neighbor
+изображение
+
+С HQ-SRV ДО BR-SRV ping 192.168.0.130
+
+Модуль 1 задание 3
+Настройте автоматическое распределение IP-адресов на роутере HQ-R. a. Учтите, что у сервера должен быть зарезервирован адрес.
+
+Установка DHCP
+
+apt update
+apt install isc-dhcp-server
+Конфиг
+
+nano /etc/default/isc-dhcp-server  
+Указываю интерфейс, который в сторону Интернета
+
+INTERFACESV4="ens19"
+Настройки раздачи адресов
+
+nano /etc/dhcp/dhcpd.conf
+subnet 192.168.0.0 netmask 255.255.255.0 {
+range 192.168.0.2 192.168.0.125;
+option domain-name-servers 8.8.8.8, 8.8.4.4;
+option routers 192.168.0.1;
+}
+Применяю изменения
+
+systemctl restart isc-dhcp-server.service
+Модуль 1 задание 4
+Настройте локальные учётные записи на всех устройствах в соответствии с таблицей.
+
+Учётная запись	Пароль	Примечание
+Admin	P@ssw0rd	CLI, HQ-SRV, HQ-R
+Branch admin	P@ssw0rd	BR-SRV, BR-R
+Network admin	P@ssw0rd	HQ-R, BR-R, BR-SRV
+Пользователь admin на HQ-SRV
+
+adduser admin
+P@ssw0rd
+usermod -aG sudo admin
+Проверка
+
+getent group sudo
+sudo:x:27:admin
+Модуль 1 задание 5
+Измерьте пропускную способность сети между двумя узлами HQ-R-ISP по средствам утилиты iperf 3. Предоставьте описание пропускной способности канала со скриншотами.
+
+HQ-R И ISP apt install iperf3
+ISP iperf3 -s -p 6869
+image
+
+№1.6 Rsync бэкап конфигов
+Установка rsync на HQ-R и BR-R
+
+apt install rsync -y
+Создание директории в машинах
+
+mkdir /etc/networkbackup
+Скрипт crontab -e
+
+0 0 * * * rsync -avzh /etc/frr/frr.conf /etc/networkbackup
+Проверка скрипта 40 15 * * * rsync -avzh /etc/frr/frr.conf /etc/networkbackup
+
+ls /etc/networkbackup/frr.conf
+frr version 8.4.4
+frr deafults tradirional
+hostname HQ-R
+log syslog informational
+no ipv6 forwarding
+service integrated-vtysh-config
